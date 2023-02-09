@@ -1,23 +1,14 @@
-import { useState} from "react";
+import { useState, useEffect} from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import SqlEditor from '../components/editor'
 import MUIDataTable from "mui-datatables";
 import React from 'react';
+import DBForm from '../components/db_credentials';
+import { emit, listen } from '@tauri-apps/api/event'
+import { useRouter } from "next/router";
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
-const columns = ["Name", "Company", "City", "State"];
-
-const data = [
- ["Joe James", "Test Corp", "Yonkers", "NY"],
- ["John Walsh", "Test Corp", "Hartford", "CT"],
- ["Bob Herm", "Test Corp", "Tampa", "FL"],
- ["James Houston", "Test Corp", "Dallas", "TX"],
-];
-
-const options = {
-  filterType: 'checkbox',
-};
-
-//meant to mirror the type is runst
+//meant to mirror the type is rust
 interface Row{
   values:Array<String>
 }
@@ -32,17 +23,31 @@ interface Return{
   rows:Array<Row>,
 }
 
-
-
 function App() {
   const [sqlInterfase,   setSqlInterfase] = useState(<></>);
   const [selectionState, setSelectionState] = useState();
   const [editorState, setEditorState] = useState();
+  const router = useRouter();
+
+  const unlisten  = async () => {
+    await listen('connect', (event) => {
+      router.push(event.payload);
+    })
+  }
+  
+  useEffect(()=>{
+    unlisten().then((e)=>{console.log(e)})
+  },[])
 
   const setError = (error:String)=>{
     setSqlInterfase(<div>
       <div>{error}</div>
     </div>);
+  }
+
+  const test_storage = () =>{
+    localStorage.setItem("key", JSON.stringify('{"label":"test"}'));
+    console.log(JSON.parse(localStorage.getItem("key")));
   }
 
   async function execute() {
@@ -51,7 +56,6 @@ function App() {
     var error:boolean = false;
     const sql = editorState;
     const data = await invoke("execute", { sql })
-    console.log(data);
     const columns = data.columns.map((c)=>{if(c.datatype=='ERROR'){error=true};return c.value})
     const values = data.rows.map((row)=>{return row.values})
 
@@ -75,17 +79,21 @@ function App() {
     }
   }
 
-  return (<>
+  return (
     <div className="container" onKeyDown={(e)=>{handle_hot_keys(e)}}>
-    <button className="r-0 h-8 w-16 bg-blue-400 rounded-md" type="button" onClick={() => execute()} >
-              Execute
+    <button 
+      className="h-8 w-8 hover:bg-slate-100 active:bg-slate-200" 
+      type="button" 
+      onClick={() => execute()} >
+        <PlayArrowIcon className="text-green-400"/>
     </button>
-  <SqlEditor  setSelectionState={setSelectionState} setEditorState={setEditorState}/>
-        
-        <div className="w-screen">{sqlInterfase}</div>
+    <SqlEditor  
+      setSelectionState={setSelectionState} 
+      setEditorState={setEditorState}/>
+        <div className="b-1"></div>
+    <div className="w-screen h-auto">{sqlInterfase}</div>
        
-      </div>
-      </>
+    </div>
   );
 }
 
