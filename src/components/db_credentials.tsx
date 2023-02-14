@@ -34,18 +34,20 @@ export default function DBForm(){
     const [username, setUsername] = useState("test");
     const [password, setPassword] = useState("password");
     const [database, setDatabase] = useState("test");
-    const [message, setMessage] = useState({});
+    const [message, setMessage] = useState('');
     const router = useRouter();
 
     const test_connection = async () => {
         const data = await invoke("test_connection", 
             { driver:driver, url:url, username:username , password:password , database:database }) 
         setMessage(data);
+        const connections = await invoke("get_connections");
+        console.log(connections);
     }
 
     const connect = async () => {
         const data = await invoke("connect", 
-            { driver:driver, url:url, username:username , password:password , database:database })
+            { name:"Hello World!",driver:driver, url:url, username:username , password:password , database:database })
 
         if(data=="Success"){
             router.push('../')
@@ -91,7 +93,7 @@ export default function DBForm(){
             onClick={()=>{back()}}>
             Back
         </button>
-        
+        {message}
         </>
     );
       

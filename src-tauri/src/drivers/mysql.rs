@@ -1,8 +1,13 @@
-use mysql::{Pool, PooledConn};
-use crate::drivers::return_types::{MyColumn,MyReturn,MyRow};
+use mysql::prelude::Queryable;
+use mysql::{Pool, PooledConn, Row};
+// use crate::drivers::return_types::{MyColumn,MyReturn,MyRow};
+use crate::drivers::return_types::MyReturn;
+use crate::drivers::return_types::MyRow;
+use crate::drivers::return_types::MyColumn;
 
 #[derive(Debug)]
 pub struct MySQL {
+    pub name:String,
     pub username:String,
     pub password:String,
     pub url:String,
@@ -28,29 +33,32 @@ impl MySQL{
     }
 
     fn get_conn(&self)->Result<PooledConn,mysql::Error>{
-        return match self.pool{
-            Some(pool)=>Ok(pool?.get_conn()?),
+        return match &self.pool{
+            Some(pool)=>Ok(pool.as_ref().unwrap().to_owned().get_conn()?),
             None=>Err(mysql::Error::UrlError(mysql::UrlError::UnknownParameter("No connection pool is established".to_string())))
         };
 
     }
 
-    fn execute(&self, sql: &str) -> MyReturn {
-        let conn = match self.get_conn(){
-            Ok(conn)=>conn,
+    pub fn execute(&self, sql: &str) -> MyReturn {
+        let mut conn = match self.get_conn(){
+            Ok(c)=>c.unwrap(),
             Err(err)=> return MyReturn{
-                columns:vec![MyColumn{value:e.to_string(),datatype:"ERROR".to_string()}],
+                columns:vec![MyColumn{value:err.to_string(),datatype:"ERROR".to_string()}],
                 rows:vec![]
             }
         };
+        
 
-        let vec = match conn.query(sql){
+        let vec:Vec<Row> = match conn.query(sql){
             Ok(x)=>x.to_owned().into_iter().collect(),
             Err(e)=>  return MyReturn{
                 columns:vec![MyColumn{value:e.to_string(),datatype:"ERROR".to_string()}],
                 rows:vec![]
             }
         };
+
+        let mut r = Vec::new();
 
         if vec.is_empty(){
             return MyReturn{columns:vec![],rows:vec![]};

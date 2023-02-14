@@ -4,11 +4,14 @@
 )]
 mod screen;
 mod drivers;
-use return_types::{MyRow, MyColumn, MyReturn};
-mod return_types;
 use std::collections::HashMap;
+use drivers::return_types::MyReturn;
+use drivers::return_types::MyRow;
+use drivers::return_types::MyColumn;
 use std::sync::Mutex;
 use mysql::{*, prelude::Queryable};
+use serde_json::json;
+use serde_json;
 
 #[derive(Debug)]
 enum Driver {
@@ -26,15 +29,15 @@ impl Driver{
         }
     }
 
-    pub fn execute(&self, sql:&str){
-        match self {
-            Driver::Oracle(oracle) => oracle.print(),
-            Driver::Mysql(mysql) => mysql.print(),
-            _=>println!("{}","unimplemented driver".to_string())
+    pub fn execute(&self, sql:&str)->MyReturn{
+        match &self {
+            Driver::Oracle(oracle) => MyReturn{columns:vec![MyColumn{value:"Unimplemented Driver".to_string(),datatype:"ERROR".to_string()}],rows:vec![]},
+            Driver::Mysql(mysql) => mysql.execute(sql),
+            _=>MyReturn{columns:vec![MyColumn{value:"Unimplemented Driver".to_string(),datatype:"ERROR".to_string()}],rows:vec![]}
         }
     }
 
-    pub fn connect(&self, sql:&str){
+    pub fn connect(&mut self){
         match self {
             Driver::Oracle(oracle) => oracle.connect(),
             Driver::Mysql(mysql) => mysql.connect(),
@@ -57,9 +60,10 @@ fn test_connection(driver:&str, url: &str, username: &str, password: &str, datab
 }
 
 #[tauri::command]
-fn connect(state: tauri::State<Connections>, driver:&str, url: &str, username: &str, password: &str, database: &str) -> String {
-    let new_driver = match driver {
+fn connect(state: tauri::State<Connections>, driver:&str, url: &str, username: &str, password: &str, database: &str, name: &str) -> String {
+    let mut new_driver = match driver {
                 "mysql"=> Driver::Mysql(drivers::mysql::MySQL{
+                                name:name.to_string(),
                                 username:username.to_string(),
                                 password:password.to_string(),
                                 url:url.to_string(),
@@ -76,79 +80,38 @@ fn connect(state: tauri::State<Connections>, driver:&str, url: &str, username: &
                             }),
                 _=> panic!("{}","INVALID DRIVER TYPE".to_string())
     };
-    state.0.lock().unwrap().insert("test", new_driver);
-    println!("{}-{}-{}-{}-{}", driver, url, username, password, database);
+    new_driver.connect();
+    let length = state.0.lock().unwrap().len();
+    let key = format!("{{name:{name},id:{length},url:{url}, username:{username}, driver:{driver}}}");
+    state.0.lock().unwrap().insert(key, new_driver);
+    println!("{}-{}-{}-{}-{}-{}", name, driver, url, username, password, database);
     return "Success".to_string();
 }
 
-fn bk_exec(sql: &str)->std::result::Result<Vec<mysql::Row>,mysql::Error>{
-    let url = "mysql://test:password@10.200.11.141:3306";
+#[tauri::command]
+fn get_connections(state: tauri::State<Connections>) -> serde_json::Value {
+    let binding = state.0.lock().unwrap();
 
-    let pool = match Pool::new(url){
-        Ok(x)=>x,
-        Err(e)=> return Err(e)
-    };
-
-    let mut conn = match pool.to_owned().get_conn(){
-        Ok(x)=>x,
-        Err(e)=> return Err(e)
-    };
-
-    let vec = match conn.query(sql){
-        Ok(x)=>x.to_owned().into_iter().collect(),
-        Err(e)=> return Err(e)
-    };
-    // let x = vec;
-    return Ok(vec);
+    let mut keys= vec![]; 
+    for key in binding.keys(){
+        keys.push(key);
+    }
+    
+    return json!(keys);
 }
 
 
 #[tauri::command]
-fn execute(state: tauri::State<Connections>, sql: &str) ->  MyReturn{
+fn execute(state: tauri::State<Connections>, sql: &str) -> MyReturn{
     let binding = state.0.lock().unwrap();
     let t = binding.get("test").unwrap().to_owned();
-        t.print();
-    
-    let vec = match bk_exec(sql){
-        Ok(r)=>r,
-        Err(e)=> return MyReturn{
-                columns:vec![MyColumn{value:e.to_string(),datatype:"ERROR".to_string()}],
-                rows:vec![]
-            }
-    };
-    let mut r = Vec::new();
-
-    if vec.is_empty(){
-        return MyReturn{columns:vec![],rows:vec![]};
-    }
-
-    let mut out_columns = Vec::new();
-    for i in vec[0].columns_ref().clone(){
-        // let columns = i.; 
-        out_columns.push(MyColumn{value:i.name_str().to_string(), datatype:"".to_string()})
-    }
-
-    for i in vec {
-
-        //as of now every row loops through and filles the columns
-        // as a side project i am gonna leave it, but will proly 
-        //chagne to {key:value} output style
-
-        let vals = i.unwrap();
-       
-        let mut vals_vec = Vec::new();
-        for val in vals{   
-            vals_vec.push(val.as_sql(true).to_owned())
-            // r.push(val.as_sql(true).to_owned());
-        }
-        r.push(MyRow{values:vals_vec});
-    }
-    let output = MyReturn{columns:out_columns, rows:r}; 
+    t.print();
+    let output = t.execute(sql);
     return output;
 }
 
 #[derive(Debug, Default)] //
-struct Connections<'a>(Mutex<HashMap<&'a str,Driver>>);
+struct Connections(Mutex<HashMap<String,Driver>>);
 
 fn main() {
 
@@ -156,7 +119,7 @@ fn main() {
     let _app = tauri::Builder::default()
         .menu(menu)
         .manage(Connections::default())
-        .invoke_handler(tauri::generate_handler![execute,test_connection,connect])
+        .invoke_handler(tauri::generate_handler![execute,test_connection,connect,get_connections])
         .on_menu_event(move |event| {
       match event.menu_item_id() {
         "quit" => {
